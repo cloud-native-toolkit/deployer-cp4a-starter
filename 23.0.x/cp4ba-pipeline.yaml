@@ -11,6 +11,9 @@ spec:
     - name: namespace
       type: string
       default: "cp4ba-starter"
+    - default: starter
+      name: mode
+      type: string
   workspaces:
     - name: ws
   tasks:
@@ -315,6 +318,59 @@ spec:
             done
 
             echo "Certs updated!"
+    - name: deploy-accelerator
+      runAfter:
+          - create-config-accelerator
+      params:
+        - name: namespace
+          value: $(params.namespace)
+      taskSpec:
+        metadata: {}
+        params:
+          - name: namespace
+            type: string
+        spec: null
+        steps:
+          - computeResources: {}
+            image: 'quay.io/ibmtz/ibm-pak-ubi:latest'
+            name: git-clone-step
+            script: |
+              curl -s https://raw.githubusercontent.com/MalekJabri/CP4AAccelerator/main/deploy-cp4accelerator.yaml > accelerator.yaml  
+              yq -e '.metadata.namespace = "$(params.namespace)"' -i accelerator.yaml  
+              oc apply -f accelerator.yaml
+
+              curl -s https://raw.githubusercontent.com/MalekJabri/CP4AAccelerator/main/RoleBiding.yaml > rolebiding.yaml  
+              yq -e '.subjects[0].namespace ="$(params.namespace)"' -i rolebiding.yaml  
+              oc apply -f rolebiding.yaml
+        workspaces:
+          - name: ws
+      workspaces:
+        - name: ws
+          workspace: ws
+    - name: create-config-accelerator
+      runAfter:
+          - add-namespace
+          - get-ibm-entitlement-key
+      params:
+        - name: SCRIPT
+          value: |
+             oc apply -f - <<EOF 
+             apiVersion: v1
+             kind: ConfigMap
+             metadata:
+              name: cp4accelerator-cm
+              namespace: $(params.namespace)
+             data:
+               connection.properties: |
+                namespace=$(params.namespace)
+                masterUrl=http
+                mode=$(params.mode)
+             EOF
+      taskRef:
+        kind: Task
+        name: ibm-pak
+   
+
   finally:
     - name: loginorcleanup
       retries: 5
